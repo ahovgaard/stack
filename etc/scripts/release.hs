@@ -200,7 +200,7 @@ rules global@Global{..} args = do
                 ,[" --haddock" | gTestHaddocks]]
             -- @@@ () <- cmd0  "install" "cabal-install"
             let cmd' c = cmd (AddPath [tmpDir] []) stackProgName (stackArgs global) c
-            () <- cmd' "test" gBuildArgs "--pedantic --flag stack:integration-tests"
+            () <- cmd' "test" gBuildArgs "--pedantic --flag stack:integration-tests --exec stack-integration-test"
             return ()
         copyFileChanged (releaseBinDir </> binaryName </> stackExeFileName) out
 
@@ -315,7 +315,12 @@ rules global@Global{..} args = do
     releaseBinDir = releaseDir </> "bin"
 
     binaryPkgFileNames =
-        concatMap (\x -> [x, x <.> ascExt, x <.> sha256Ext]) binaryPkgArchiveFileNames
+        concatMap xxxNames binaryPkgArchiveFileNames
+    xxxNames x =
+        -- @@@ SHOULD USE MAYBE FOR gGpgKey INSTEAD OF CHECKING FOR EMPTY
+        if null gGpgKey
+            then [x, x <.> sha256Ext]
+            else [x, x <.> sha256Ext, x <.> ascExt]
     binaryPkgArchiveFileNames =
         case platformOS of
             Windows -> [binaryPkgZipFileName, binaryPkgTarGzFileName]
