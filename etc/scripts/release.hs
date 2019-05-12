@@ -77,7 +77,7 @@ main =
             _ <- readProcess "stack" ["build", "--dry-run"] ""
             gStackPackageDescription <-
                 packageDescription <$> readGenericPackageDescription silent "stack.cabal"
-            gGpgKey <- fromMaybe defaultGpgKey <$> lookupEnv gpgKeyEnvVar
+            gGpgKey <- maybe defaultGpgKey Just <$> lookupEnv gpgKeyEnvVar
             gGithubAuthToken <- lookupEnv githubAuthTokenEnvVar
             gGitRevCount <- length . lines <$> readProcess "git" ["rev-list", "HEAD"] ""
             gGitSha <- trim <$> readProcess "git" ["rev-parse", "HEAD"] ""
@@ -109,7 +109,7 @@ main =
 options :: [OptDescr (Either String (Global -> Global))]
 options =
     [ Option "" [gpgKeyOptName]
-        (ReqArg (\v -> Right $ \g -> g{gGpgKey = v}) "USER-ID")
+        (ReqArg (\v -> Right $ \g -> g{gGpgKey = Just v}) "USER-ID")
         ("GPG user ID to sign distribution package with (defaults to " ++
          gpgKeyEnvVar ++
          " environment variable).")
@@ -171,6 +171,7 @@ rules global@Global{..} args = do
         mapM_ (\f -> need [releaseDir </> f <.> uploadExt]) binaryPkgFileNames
 
     phony buildPhony $
+        -- @@@ MAYBE THIS SHOULDN'T TRY SIGNING, OR DEFAULT GPG KEY TO NOTHING
         mapM_ (\f -> need [releaseDir </> f]) binaryPkgFileNames
 
     releaseDir </> "*" <.> uploadExt %> \out -> do
@@ -267,9 +268,12 @@ rules global@Global{..} args = do
     releaseDir </> "*" <.> ascExt %> \out -> do
         need [out -<.> ""]
         _ <- liftIO $ tryJust (guard . isDoesNotExistError) (removeFile out)
-        cmd ("gpg " ++ gpgOptions ++ " --detach-sig --armor")
-            [ "-u", gGpgKey
-            , dropExtension out ]
+        case gGpgKey of
+            Nothing -> error "@@@"
+            Just gpgKey ->
+                cmd ("gpg " ++ gpgOptions ++ " --detach-sig --armor")
+                    [ "-u", gpgKey
+                    , dropExtension out ]
 
     releaseDir </> "*" <.> sha256Ext %> \out -> do
         need [out -<.> ""]
@@ -459,8 +463,8 @@ githubReleaseTagOptName :: String
 githubReleaseTagOptName = "github-release-tag"
 
 -- | Default GPG key ID for signing bindists
-defaultGpgKey :: String
-defaultGpgKey = "0x575159689BEFB442"
+defaultGpgKey :: Maybe String
+defaultGpgKey = Nothing -- @@@ "0x575159689BEFB442"
 
 -- | @STACK_RELEASE_GPG_KEY@ environment variable name.
 gpgKeyEnvVar :: String
@@ -504,7 +508,7 @@ certificateNameOptName = "certificate-name"
 
 -- | Arguments to pass to all 'stack' invocations.
 stackArgs :: Global -> [String]
-stackArgs Global{..} = ["--install-ghc", "--arch=" ++ display gArch]
+stackArgs Global{..} = ["--install-ghc", "--arch=" ++ display gArch, "--interleaved-output"]
 
 -- | Name of the 'stack' program.
 stackProgName :: FilePath
@@ -543,7 +547,7 @@ instance FromJSON GithubReleaseAsset where
 -- | Global values and options.
 data Global = Global
     { gStackPackageDescription :: !PackageDescription
-    , gGpgKey :: !String
+    , gGpgKey :: !(Maybe String)
     , gAllowDirty :: !Bool
     , gGithubAuthToken :: !(Maybe String)
     , gGithubReleaseTag :: !(Maybe String)
